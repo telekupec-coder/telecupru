@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>TV CRM Mini App</title>
+    <!-- Telegram Web App SDK -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        tg: {
+                            bg: 'var(--tg-theme-bg-color, #ffffff)',
+                            text: 'var(--tg-theme-text-color, #000000)',
+                            hint: 'var(--tg-theme-hint-color, #999999)',
+                            card: 'var(--tg-theme-secondary-bg-color, #f1f1f2)',
+                            button: 'var(--tg-theme-button-color, #2481cc)',
+                            buttonText: 'var(--tg-theme-button-text-color, #ffffff)',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: var(--tg-theme-bg-color, #0f172a);
+            color: var(--tg-theme-text-color, #f8fafc);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+        /* Статусные цветовые маркеры */
+        .card-red { border-left: 5px solid #ef4444; background: rgba(239, 68, 68, 0.08); }
+        .card-orange { border-left: 5px solid #f97316; background: rgba(249, 115, 22, 0.08); }
+        .card-turquoise { border-left: 5px solid #14b8a6; background: rgba(20, 184, 166, 0.08); }
+        .card-green { border-left: 5px solid #22c55e; background: rgba(34, 197, 94, 0.08); }
+    </style>
+</head>
+<body class="pb-24">
+    <div id="app" class="max-w-md mx-auto min-h-screen flex flex-col p-4">
+        
+        <!-- Верхняя шапка -->
+        <header class="flex items-center justify-between mb-4 pt-2">
+            <div>
+                <h1 class="text-xl font-bold tracking-tight">TV CRM Mobile</h1>
+                <p class="text-xs opacity-70">Склад техники и ремонты</p>
+            </div>
+            <button @click="openAddModal = true" class="bg-[var(--tg-theme-button-color,#3b82f6)] text-[var(--tg-theme-button-text-color,#ffffff)] w-10 h-10 rounded-full flex items-center justify-center shadow-lg active:scale-95 transition">
+                <i class="fa-solid fa-plus text-lg"></i>
+            </button>
+        </header>
+
+        <!-- KPI Карточки (Сводка) -->
+        <div class="grid grid-cols-2 gap-3 mb-4">
+            <div class="bg-[var(--tg-theme-secondary-bg-color,#1e293b)] p-3 rounded-2xl border border-slate-700/40">
+                <div class="text-xs opacity-75 font-medium">Всего позиций</div>
+                <div class="text-2xl font-black mt-1">{{ filteredList.length }}</div>
+            </div>
+            <div class="bg-[var(--tg-theme-secondary-bg-color,#1e293b)] p-3 rounded-2xl border border-slate-700/40">
+                <div class="text-xs opacity-75 font-medium">В ремонте / Дефекты</div>
+                <div class="text-2xl font-black mt-1 text-amber-500">{{ inRepairCount }}</div>
+            </div>
+            <div class="bg-[var(--tg-theme-secondary-bg-color,#1e293b)] p-3 rounded-2xl border border-slate-700/40">
+                <div class="text-xs opacity-75 font-medium">Готовы к продаже</div>
+                <div class="text-2xl font-black mt-1 text-teal-400">{{ readyCount }}</div>
+            </div>
+            <div class="bg-[var(--tg-theme-secondary-bg-color,#1e293b)] p-3 rounded-2xl border border-slate-700/40">
+                <div class="text-xs opacity-75 font-medium">Прибыль (Продано)</div>
+                <div class="text-xl font-black mt-1 text-emerald-400">{{ formatMoney(totalProfit) }} ₽</div>
+            </div>
+        </div>
+
+        <!-- Фильтры и Поиск -->
+        <div class="space-y-2 mb-4">
+            <div class="relative">
+                <i class="fa-solid fa-search absolute left-3 top-3.5 text-slate-400 text-sm"></i>
+                <input v-model="searchQuery" type="text" placeholder="Поиск по артикулу, модели, мастеру..." class="w-full bg-[var(--tg-theme-secondary-bg-color,#1e293b)] border border-slate-700/50 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:border-blue-500">
+            </div>
+
+            <div class="flex gap-2 overflow-x-auto pb-1 text-xs">
+                <select v-model="selectedLot" class="bg-[var(--tg-theme-secondary-bg-color,#1e293b)] border border-slate-700/50 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none">
+                    <option value="ALL">Все партии</option>
+                    <option v-for="lot in lotOptions" :key="lot" :value="lot">{{ lot }}</option>
+                </select>
+
+                <div class="flex gap-1.5 shrink-0">
+                    <button @click="colorFilter = 'ALL'" :class="colorFilter === 'ALL' ? 'bg-blue-600 text-white' : 'bg-slate-800 opacity-60'" class="px-3 py-2 rounded-xl font-medium">Все</button>
+                    <button @click="colorFilter = 'RED'" :class="colorFilter === 'RED' ? 'ring-2 ring-red-500' : ''" class="bg-red-950/60 text-red-400 border border-red-800/50 px-2.5 py-2 rounded-xl">🔴</button>
+                    <button @click="colorFilter = 'ORANGE'" :class="colorFilter === 'ORANGE' ? 'ring-2 ring-orange-500' : ''" class="bg-orange-950/60 text-orange-400 border border-orange-800/50 px-2.5 py-2 rounded-xl">🟠</button>
+                    <button @click="colorFilter = 'TURQUOISE'" :class="colorFilter === 'TURQUOISE' ? 'ring-2 ring-teal-500' : ''" class="bg-teal-950/60 text-teal-400 border border-teal-800/50 px-2.5 py-2 rounded-xl">🌐</button>
+                    <button @click="colorFilter = 'GREEN'" :class="colorFilter === 'GREEN' ? 'ring-2 ring-green-500' : ''" class="bg-green-950/60 text-green-400 border border-green-800/50 px-2.5 py-2 rounded-xl">🟢</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Список элементов -->
+        <div class="space-y-3 flex-1">
+            <div v-for="item in finalFilteredList" :key="item.id" :class="getCardColorClass(item.status)" class="p-3.5 rounded-2xl border border-slate-700/40 shadow-sm flex flex-col space-y-2">
+                <div class="flex justify-between items-start">
+                    <div class="flex items-center space-x-2">
+                        <span class="font-mono font-bold text-sm px-2 py-0.5 rounded bg-black/20 text-blue-400">{{ item.sku }}</span>
+                        <span class="text-xs opacity-60">{{ item.lot }}</span>
+                    </div>
+                    <span class="text-xs font-semibold px-2 py-0.5 rounded" :class="getStatusBadgeClass(item.status)">{{ item.status }}</span>
+                </div>
+
+                <div class="font-bold text-base">{{ item.model }}</div>
+
+                <div class="flex justify-between items-center text-xs opacity-80 pt-1 border-t border-slate-700/30">
+                    <div>Мастер: <span class="font-medium text-slate-200">{{ item.master || 'Не назначен' }}</span></div>
+                    <div class="font-bold text-emerald-400 text-sm">Продажа: {{ formatMoney(item.sellPrice) }} ₽</div>
+                </div>
+
+                <!-- Быстрое изменение статуса прямо с карточки -->
+                <div class="flex items-center justify-between pt-1">
+                    <select v-model="item.status" class="bg-black/30 border border-slate-700/50 rounded-lg px-2 py-1 text-xs focus:outline-none w-full">
+                        <option v-for="st in availableStatuses" :key="st" :value="st">{{ st }}</option>
+                    </select>
+                </div>
+            </div>
+
+            <div v-if="finalFilteredList.length === 0" class="text-center py-10 opacity-50 text-sm">
+                Ничего не найдено
+            </div>
+        </div>
+
+        <!-- Модальное окно добавления -->
+        <div v-if="openAddModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+            <div class="bg-[var(--tg-theme-secondary-bg-color,#1e293b)] w-full max-w-lg rounded-t-3xl sm:rounded-2xl p-5 border border-slate-700 space-y-4 max-h-[90vh] overflow-y-auto">
+                <div class="flex justify-between items-center border-b border-slate-700 pb-3">
+                    <h3 class="font-bold text-lg">Новая позиция ТВ</h3>
+                    <button @click="openAddModal = false" class="text-slate-400 hover:text-white px-2 py-1"><i class="fa-solid fa-xmark text-lg"></i></button>
+                </div>
+
+                <div class="space-y-3 text-sm">
+                    <div>
+                        <label class="text-xs opacity-70 block mb-1">Артикул</label>
+                        <input v-model="newItem.sku" type="text" placeholder="например, Т15" class="w-full bg-black/30 border border-slate-700 rounded-xl px-3 py-2">
+                    </div>
+                    <div>
+                        <label class="text-xs opacity-70 block mb-1">Партия</label>
+                        <input v-model="newItem.lot" type="text" placeholder="Партия Т 09.04.2026" class="w-full bg-black/30 border border-slate-700 rounded-xl px-3 py-2">
+                    </div>
+                    <div>
+                        <label class="text-xs opacity-70 block mb-1>">Модель телевизора</label>
+                        <input v-model="newItem.model" type="text" placeholder="Samsung 55 Crystal UHD" class="w-full bg-black/30 border border-slate-700 rounded-xl px-3 py-2">
+                    </div>
+                    <div>
+                        <label class="text-xs opacity-70 block mb-1">Состояние / Статус</label>
+                        <select v-model="newItem.status" class="w-full bg-black/30 border border-slate-700 rounded-xl px-3 py-2">
+                            <option v-for="st in availableStatuses" :key="st" :value="st">{{ st }}</option>
+                        </select>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="text-xs opacity-70 block mb-1">Закупка (₽)</label>
+                            <input v-model.number="newItem.buyPrice" type="number" class="w-full bg-black/30 border border-slate-700 rounded-xl px-3 py-2">
+                        </div>
+                        <div>
+                            <label class="text-xs opacity-70 block mb-1">Цена продажи (₽)</label>
+                            <input v-model.number="newItem.sellPrice" type="number" class="w-full bg-black/30 border border-slate-700 rounded-xl px-3 py-2">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pt-2 flex gap-3">
+                    <button @click="openAddModal = false" class="w-1/2 bg-slate-700 py-2.5 rounded-xl font-medium">Отмена</button>
+                    <button @click="addNewItem" class="w-1/2 bg-blue-600 text-white py-2.5 rounded-xl font-medium">Сохранить</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    searchQuery: '',
+                    selectedLot: 'ALL',
+                    colorFilter: 'ALL',
+                    openAddModal: false,
+                    newItem: { sku: '', lot: 'Партия Т 09.04.2026', model: '', status: 'В ремонте', buyPrice: 0, sellPrice: 0, master: 'Артем' },
+                    availableStatuses: [
+                        'БИТЫЙ / Разбит экран',
+                        'НЕ ВКЛЮЧАЕТСЯ',
+                        'Замена матрицы',
+                        'ПОДСВЕТКА',
+                        'В ремонте',
+                        'РАБОЧИЙ / Готов к продаже',
+                        'НОВЫЙ',
+                        'ПРОДАН'
+                    ],
+                    tvList: [
+                        { id: 1, sku: 'Т2', lot: 'Партия Т 09.04.2026', model: 'TCL 65C745', status: 'ПОДСВЕТКА', master: 'Артем', buyPrice: 0, masterPrice: 3000, expenses: 21042, sellPrice: 63990, sellDate: '18.08.2026' },
+                        { id: 2, sku: 'У2', lot: 'Партия У 09.04.2026', model: 'HAIER H65S9', status: 'РАБОЧИЙ / Готов к продаже', master: '', buyPrice: 54222, masterPrice: 0, expenses: 0, sellPrice: 71500, sellDate: '17.04.2026' },
+                        { id: 3, sku: 'Ф2', lot: 'Партия Ф 22.05.2026', model: 'DIGMA PRO 55C', status: 'НОВЫЙ', master: '', buyPrice: 25500, masterPrice: 0, expenses: 0, sellPrice: 35990, sellDate: '13.08.2026' },
+                        { id: 4, sku: 'Х2', lot: 'Партия Х 11.06.2026', model: 'Телевизор LG 32', status: 'ПРОДАН', master: 'Жека', buyPrice: 0, masterPrice: 500, expenses: 0, sellPrice: 5990, sellDate: '17.06.2026' },
+                        { id: 5, sku: 'Ч2', lot: 'Партия Ч 07.08.2026', model: 'Hisense 50', status: 'БИТЫЙ / Разбит экран', master: 'Женя', buyPrice: 2000, masterPrice: 0, expenses: 0, sellPrice: 0, sellDate: '' }
+                    ]
+                }
+            },
+            mounted() {
+                // Инициализация Telegram Web App
+                if (window.Telegram && window.Telegram.WebApp) {
+                    const tg = window.Telegram.WebApp;
+                    tg.ready();
+                    tg.expand();
+                }
+            },
+            computed: {
+                lotOptions() {
+                    return [...new Set(this.tvList.map(item => item.lot))];
+                },
+                filteredList() {
+                    let list = this.tvList;
+                    if (this.selectedLot !== 'ALL') {
+                        list = list.filter(item => item.lot === this.selectedLot);
+                    }
+                    if (this.searchQuery) {
+                        const q = this.searchQuery.toLowerCase();
+                        list = list.filter(item => 
+                            item.sku.toLowerCase().includes(q) || 
+                            item.model.toLowerCase().includes(q) ||
+                            (item.master && item.master.toLowerCase().includes(q))
+                        );
+                    }
+                    return list;
+                },
+                finalFilteredList() {
+                    if (this.colorFilter === 'ALL') return this.filteredList;
+                    return this.filteredList.filter(item => this.getCategoryByStatus(item.status) === this.colorFilter);
+                },
+                inRepairCount() {
+                    return this.filteredList.filter(i => ['RED', 'ORANGE'].includes(this.getCategoryByStatus(i.status))).length;
+                },
+                readyCount() {
+                    return this.filteredList.filter(i => this.getCategoryByStatus(i.status) === 'TURQUOISE').length;
+                },
+                totalProfit() {
+                    return this.filteredList
+                        .filter(i => this.getCategoryByStatus(i.status) === 'GREEN')
+                        .reduce((sum, item) => sum + (item.sellPrice - (item.buyPrice + (item.masterPrice || 0) + (item.expenses || 0))), 0);
+                }
+            },
+            methods: {
+                getCategoryByStatus(status) {
+                    if (!status) return 'TURQUOISE';
+                    const s = status.toLowerCase();
+                    if (s.includes('битый') || s.includes('матриц') || s.includes('утиль')) return 'RED';
+                    if (s.includes('ремонт') || s.includes('включ') || s.includes('подсветк')) return 'ORANGE';
+                    if (s.includes('продан') || s.includes('выкуп')) return 'GREEN';
+                    return 'TURQUOISE';
+                },
+                getCardColorClass(status) {
+                    const cat = this.getCategoryByStatus(status);
+                    if (cat === 'RED') return 'card-red';
+                    if (cat === 'ORANGE') return 'card-orange';
+                    if (cat === 'GREEN') return 'card-green';
+                    return 'card-turquoise';
+                },
+                getStatusBadgeClass(status) {
+                    const cat = this.getCategoryByStatus(status);
+                    if (cat === 'RED') return 'bg-red-500/20 text-red-400';
+                    if (cat === 'ORANGE') return 'bg-orange-500/20 text-orange-400';
+                    if (cat === 'GREEN') return 'bg-green-500/20 text-green-400';
+                    return 'bg-teal-500/20 text-teal-400';
+                },
+                formatMoney(val) {
+                    return (val || 0).toLocaleString('ru-RU');
+                },
+                addNewItem() {
+                    if (!this.newItem.sku || !this.newItem.model) return;
+                    this.tvList.unshift({
+                        id: Date.now(),
+                        sku: this.newItem.sku,
+                        lot: this.newItem.lot,
+                        model: this.newItem.model,
+                        status: this.newItem.status,
+                        master: this.newItem.master,
+                        buyPrice: Number(this.newItem.buyPrice),
+                        sellPrice: Number(this.newItem.sellPrice),
+                        masterPrice: 0,
+                        expenses: 0
+                    });
+                    this.newItem.sku = '';
+                    this.newItem.model = '';
+                    this.openAddModal = false;
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
